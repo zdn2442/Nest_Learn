@@ -8,12 +8,17 @@ import { LoginDto, RegisterDto } from "./auth.dto";
 import { compare, hash } from "bcrypt"; //import hash
 import { JwtService } from "@nestjs/jwt/dist/jwt.service";
 import { jwt_config } from "src/config/jwt.config";
+import { ResetPassword } from "./reset_password.entity";
+import { MailService } from "../mail/mail.service";
+import { randomBytes } from "crypto";
 
 @Injectable()
 export class AuthService extends BaseResponse {
   constructor(
     @InjectRepository(User) private readonly authRepository: Repository<User>,
-    private jwtService: JwtService, // panggil kelas jwt service
+    @InjectRepository(ResetPassword) private readonly resetPasswordRepository: Repository<ResetPassword>,  // inject repository reset password
+    private jwtService: JwtService,
+    private mailService: MailService,
   ) {
     super();
   }
@@ -150,6 +155,39 @@ export class AuthService extends BaseResponse {
       access_token: access_token,
       refresh_token: refresh_token,
     });
+  }
+
+  async forgotPassword(email: string): Promise<ResponseSuccess> {
+    const user = await this.authRepository.findOne({
+      where: {
+        email: email,
+      },
+    });
+
+    if (!user) {
+      throw new HttpException(
+        'Email tidak ditemukan',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+    const token = randomBytes(32).toString('hex'); // membuat token
+    const link = `http://localhost:5002/auth/reset-password/${user.id}/${token}`; //membuat link untuk reset password
+    await this.mailService.sendForgotPassword({
+      email: email,
+      name: user.nama,
+      link: link,
+    });
+
+    const payload = {
+      user: {
+        id: user.id,
+      },
+      token: token,
+    };
+
+    await this.resetPasswordRepository.save(payload); // menyimpan token dan id ke tabel reset password
+
+    return this._success('Silahkan Cek Email');
   }
 
 
